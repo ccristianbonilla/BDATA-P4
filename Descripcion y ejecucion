@@ -1,0 +1,21 @@
+1. Descarga y lectura del archivo
+Se descargó el archivo usando wget y se leyó en Python mediante pandas.
+wget https://www.datos.gov.co/resource/dv2d-ud46.csv
+
+2. Carga en HBase
+Se cargaron los datos desde el DataFrame de pandas hacia una tabla de HBase, estructurando la información en familias como institución, programa y estudiante.
+
+3. Consultas implementadas
+A través de happybase, se implementaron diversas consultas para obtener resultados:
+a) Matrículas por sexo
+Permite ver la cantidad de estudiantes hombres y mujeres en el dataset. 
+b) Matrículas por zona de residencia
+Distingue entre estudiantes de zona urbana y rural, lo cual permite analizar la cobertura educativa según el origen geográfico.
+c) Comparativa sexo-nivel académico
+Relaciona el sexo de los estudiantes con el nivel académico (pregrado o posgrado), útil para estudios de equidad.
+d) Primeras 5 matrículas de una IES específica
+Filtra registros de la institución, útil para estudios por universidad.
+e) Distribución porcentual de niveles académicos
+Muestra el porcentaje de matrículas en cada nivel educativo (pregrado vs posgrado), ayudando a entender la orientación del sistema educativo.
+f) Cantidad de IES y programas distintos
+Cuenta las instituciones y programas únicos.
