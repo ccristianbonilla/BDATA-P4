@@ -1,0 +1,202 @@
+import happybase
+import pandas as pd
+
+# 1. Conexión a HBase
+connection = happybase.Connection('localhost')
+connection.open()
+print("Conectado a HBase")
+
+# 2. (Re)Crear la tabla 'matriculas' con sus familias de columnas
+table_name = 'matriculas'
+families = {
+    'estudiante': dict(),   # sexo, zona
+    'institucion': dict(),  # nombre y código IES
+    'ubicacion': dict(),    # departamento, municipio, país, cod_dane
+    'programa': dict(),     # nombre, consecutivo, nivel académico
+}
+
+# Si ya existía, la eliminamos
+if table_name.encode() in connection.tables():
+    print("Tabla ya existe. Eliminando...")
+    connection.delete_table(table_name, disable=True)
+
+# Creamos la tabla
+connection.create_table(table_name, families)
+table = connection.table(table_name)
+print("Tabla 'matriculas' creada")
+
+# 3. Cargar datos del CSV 
+df = pd.read_csv('dv2d-ud46.csv')
+print(f"Dataset cargado: {df.shape[0]} filas, {df.shape[1]} columnas")
+
+# 4. Insertar cada fila en HBase
+for idx, row in df.iterrows():
+    # Definimos rowkey único: año_semestre_codigoIES_idx
+    row_key = f"{row['a_o']}_{row['semestre']}_{row['c_digo_ies']}_{idx}".encode()
+
+    data = {
+        # Datos del estudiante
+        b'estudiante:sexo':                str(row['sexo_biologico']).encode(),
+        b'estudiante:zona':                str(row['zona_residencia']).encode(),
+
+        # Datos de la institución
+        b'institucion:nombre':             str(row['nombre_ies']).encode(),
+        b'institucion:codigo':             str(row['c_digo_ies']).encode(),
+
+        # Ubicación
+        b'ubicacion:departamento':         str(row['departamento']).encode(),
+        b'ubicacion:municipio':            str(row['municipio']).encode(),
+        b'ubicacion:pais':                 str(row['pais']).encode(),
+        b'ubicacion:cod_dane':             str(row['cod_dane']).encode(),
+
+        # Programa académico
+        b'programa:nombre':                str(row['programa']).encode(),
+        b'programa:consecutivo':           str(row['programa_consecutivo']).encode(),
+        b'programa:nivel':                 str(row['nivel_academico']).encode(),
+    }
+
+    table.put(row_key, data)
+
+print("Todos los registros insertados en HBase")
+
+# 5. Consultas y análisis
+
+# a) Conteo por sexo
+print("\n Matrículas por sexo ")
+sexo_counts = {}
+for _, data in table.scan():
+    sexo = data.get(b'estudiante:sexo', b'Desconocido').decode()
+    sexo_counts[sexo] = sexo_counts.get(sexo, 0) + 1
+for sexo, cnt in sexo_counts.items():
+    print(f"{sexo}: {cnt}")
+
+# b) Matrículas por zona de residencia
+print("\n Matrículas por zona de residencia ")
+zona_counts = {}
+for _, data in table.scan():
+    zona = data.get(b'estudiante:zona', b'Desconocido').decode()
+    zona_counts[zona] = zona_counts.get(zona, 0) + 1
+for zona, cnt in zona_counts.items():
+    print(f"{zona}: {cnt}")
+
+# c) Top 5 IES con más matrículas
+print("\n Top 5 IES ")
+ies_counts = {}
+for _, data in table.scan():
+    ies = data.get(b'institucion:nombre', b'Desconocido').decode()
+    ies_counts[ies] = ies_counts.get(ies, 0) + 1
+top5_ies = sorted(ies_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+for ies, cnt in top5_ies:
+    print(f"{ies}: {cnt}")
+
+# d) Matrículas por departamento
+print("\n Matrículas por departamento ")
+dept_counts = {}
+for _, data in table.scan():
+    dept = data.get(b'ubicacion:departamento', b'Desconocido').decode()
+    dept_counts[dept] = dept_counts.get(dept, 0) + 1
+for dept, cnt in sorted(dept_counts.items(), key=lambda x: x[1], reverse=True):
+    print(f"{dept}: {cnt}")
+
+# e) Estudiantes por año y semestre
+print("\n Matrículas por período (Año-Semestre) ")
+period_counts = {}
+for key, _ in table.scan():
+    año, semestre, *_ = key.decode().split('_')
+    period = f"{año}-S{semestre}"
+    period_counts[period] = period_counts.get(period, 0) + 1
+for period, cnt in sorted(period_counts.items()):
+    print(f"{period}: {cnt}")
+
+# f) Promedio de matrículas por programa académico
+print("\n--- Promedio de matrículas por programa académico ---")
+program_counts = {}
+program_stats = {}
+for _, data in table.scan():
+    programa = data.get(b'programa:nombre', b'Desconocido').decode()
+    program_counts[programa] = program_counts.get(programa, 0) + 1
+    program_stats[programa] = program_stats.get(programa, 0) + 1
+for programa, count in program_counts.items():
+    avg_count = count / program_stats[programa]
+    print(f"{programa}: {avg_count:.2f}")	
+
+
+# ////////////////////////CONSULTAS PARA EL ANALISIS///////////////////////
+#A). Comparativa de sexo por nivel académico
+print("\n Sexo vs Nivel académico ")
+sex_level = {}
+for _, data in table.scan():
+    sexo = data.get(b'estudiante:sexo', b'').decode()
+    nivel = data.get(b'programa:nivel', b'').decode()
+    sex_level.setdefault(nivel, {'MASCULINO': 0, 'FEMENINO': 0, 'OTRO': 0})
+    sex_level[nivel][sexo] = sex_level[nivel].get(sexo, 0) + 1
+
+for nivel, counts in sex_level.items():
+    print(f"{nivel}: {counts}")
+
+
+
+#B). Filtrar y mostrar las 5 primeras matrículas de una IES específica
+
+print("\n Primeras 5 matrículas de la IES 'COLEGIO MAYOR DE ANTIOQUIA' ")
+count = 0
+for key, data in table.scan():
+    if data.get(b'institucion:nombre', b'').decode() == "COLEGIO MAYOR DE ANTIOQUIA":
+        print(key.decode(), 
+              data.get(b'programa:nombre', b'').decode(), 
+              data.get(b'estudiante:sexo', b'').decode())
+        count += 1
+        if count >= 5:
+            break
+
+
+
+#C). Matrículas por región agregada
+print("\n Matrículas por código DANE de departamento ")
+dane_counts = {}
+for _, data in table.scan():
+    cod = data.get(b'ubicacion:cod_dane', b'').decode()[:2]  # primeros 2 dígitos = depto
+    dane_counts[cod] = dane_counts.get(cod, 0) + 1
+
+for cod, cnt in sorted(dane_counts.items()):
+    print(f"{cod}: {cnt}")
+
+
+#D). Distribución porcentual de niveles académicos
+print("\n Distribución de nivel académico (%) ")
+nivel_counts = {}
+total = 0
+for _, data in table.scan():
+    nivel = data.get(b'programa:nivel', b'Desconocido').decode()
+    nivel_counts[nivel] = nivel_counts.get(nivel, 0) + 1
+    total += 1
+
+for nivel, cnt in nivel_counts.items():
+    pct = cnt / total * 100
+    print(f"{nivel}: {cnt} ({pct:.1f}%)")
+
+#E). Cantidad de IES distintas y programas distintos
+print("\n IES y programas únicos ")
+ies_set = set()
+prog_set = set()
+for _, data in table.scan():
+    ies_set.add(data.get(b'institucion:nombre', b'').decode())
+    prog_set.add(data.get(b'programa:nombre', b'').decode())
+
+print(f"Total IES únicas: {len(ies_set)}")
+print(f"Total programas únicos: {len(prog_set)}")
+
+#F). Top 10 municipios con más matrícula
+print("\n Top 10 municipios ")
+muni_counts = {}
+for _, data in table.scan():
+    muni = data.get(b'ubicacion:municipio', b'Desconocido').decode()
+    muni_counts[muni] = muni_counts.get(muni, 0) + 1
+top10_muni = sorted(muni_counts.items(), key=lambda x: x[1], reverse=True)[:10]
+for muni, cnt in top10_muni:
+    print(f"{muni}: {cnt}")
+
+
+# Cerrar conexión
+connection.close()
+print("Conexión cerrada")
