@@ -9,10 +9,10 @@ print("Conectado a HBase")
 # 2. (Re)Crear la tabla 'matriculas' con sus familias de columnas
 table_name = 'matriculas'
 families = {
-    'estudiante': dict(),   # sexo, zona
-    'institucion': dict(),  # nombre y código IES
-    'ubicacion': dict(),    # departamento, municipio, país, cod_dane
-    'programa': dict(),     # nombre, consecutivo, nivel académico
+    'estudiante': dict(),   
+    'institucion': dict(),  
+    'ubicacion': dict(),    
+    'programa': dict(),     
 }
 
 # Si ya existía, la eliminamos
